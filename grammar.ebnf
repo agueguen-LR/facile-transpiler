@@ -1,0 +1,47 @@
+code        = [instruction]*
+
+instruction =
+    read
+  | print
+  | assign
+  | if
+  | while
+
+identifier  = '[a-zA-Z][a-zA-Z0-9_]*'
+number      = '0|[1-9][0-9]*'
+
+read        = "read" identifier ";"
+print       = "print" expression ";"
+assign      = identifier ":=" expression ";"
+
+if          = "if" boolean "then" code elseif else ("end" | "endif")
+elseif      = ["elseif" boolean "then" code]*
+else        = ["else" code]
+
+while       = "while" boolean "do" code_while ("end" | "endwhile")
+code_while  = ["continue" | "break" | instruction]*
+
+expression = [
+    identifier
+  | number
+  | expression "+" expression
+  | expression "-" expression
+  | expression "*" expression
+  | expression "/" expression
+  | "(" expression ")"
+]
+
+boolean = [
+    "true"
+  | "false"
+  | expression ">=" expression
+  | expression "<=" expression
+  | expression ">" expression
+  | expression "<" expression
+  | expression "=" expression
+  | expression "#" expression
+  | "not" boolean
+  | boolean "and" boolean
+  | boolean "or" boolean
+  | "(" boolean ")"
+]
