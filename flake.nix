@@ -14,6 +14,7 @@
         bison
         cmake
         flex
+        mono
       ];
 
       shellHook = ''

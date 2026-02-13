@@ -1,41 +1,10 @@
 %{
 	#include <assert.h>
 
-	#define TOK_IF 258
-	#define TOK_THEN 259
-	#define TOK_SEMI_COLON 260
-	#define TOK_ASSIGN 261
-	#define TOK_ADD 262
-	#define TOK_SUB 263
-	#define TOK_MUL 264
-	#define TOK_DIV 265
-	#define TOK_IDENTIFIER 266
-	#define TOK_READ 267
-	#define TOK_PRINT 268
-	#define TOK_ENDIF 269
-	#define TOK_ELSEIF 270
-	#define TOK_END 271
-	#define TOK_ELSE 272
-	#define TOK_WHILE 273
-	#define TOK_DO 274
-	#define TOK_ENDWHILE 275
-	#define TOK_CONTINUE 276
-	#define TOK_BREAK 277
-	#define TOK_LPAREN 278
-	#define TOK_RPAREN 279
-	#define TOK_TRUE 280
-	#define TOK_FALSE 281
-	#define TOK_SUPEQ 282
-	#define TOK_SUBEQ 283
-	#define TOK_MORE_THAN 284
-	#define TOK_LESS_THAN 285
-	#define TOK_EQ 286
-	#define TOK_DIFF 287
-	#define TOK_NOT 288
-	#define TOK_AND 289
-	#define TOK_OR 290
-	#define TOK_NUMBER 291
+	#include "facile.y.h"
 %}
+
+%option yylineno
 
 %%
 
@@ -218,5 +187,5 @@ or {
 
 /*
 * file: facile.lex
-* version: 0.1.0
+* version: 0.2.0
 */
