@@ -15,6 +15,8 @@
         cmake
         flex
         mono
+        glib
+        pkg-config
       ];
 
       shellHook = ''

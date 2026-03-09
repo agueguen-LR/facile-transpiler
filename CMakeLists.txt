@@ -7,7 +7,11 @@ project(facile VERSION 0.2.0 LANGUAGES C)
 
 find_package(FLEX)
 
-
+find_package(PkgConfig REQUIRED)
+pkg_check_modules(GLIB2 REQUIRED glib-2.0)
+include_directories(${GLIB2_INCLUDE_DIRS})
+link_directories(${GLIB2_LIBRARY_DIRS})
+add_definitions(${GLIB2_CFLAGS_OTHER})
 
 flex_target(
 	FACILE_SCANNER
@@ -28,6 +32,7 @@ add_executable(
 	${BISON_FACILE_PARSER_OUTPUTS}
 )
 target_link_libraries(facile fl)
+target_link_libraries(facile ${GLIB2_LIBRARIES})
 
 set(CPACK_SOURCE_GENERATOR "ZIP")
 set(CPACK_SOURCE_IGNORE_FILES "build;~$;${CPACK_SOURCE_IGNORE_FILES}")

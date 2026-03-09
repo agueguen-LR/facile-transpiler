@@ -1,3 +1,9 @@
+/*
+* @file facile.lex
+* @author agueguen-LR <agueguen@proton.me>
+* @date 2026
+*/
+
 %{
 	#include <assert.h>
 
@@ -170,11 +176,13 @@ or {
 
 [a-zA-Z][a-zA-Z0-9_]* {
 	assert(printf("identifier '%s(%d)' found", yytext, yyleng));
+	yylval.string = yytext;
 	return TOK_IDENTIFIER;
 }
 
 0|[1-9][0-9]* {
 	assert(printf("number '%s(%d)' found", yytext, yyleng));
+	sscanf(yytext, "%lu", &yylval.number);
 	return TOK_NUMBER;
 }
 
@@ -184,8 +192,3 @@ or {
 	return yytext[0];
 }
 %%
-
-/*
-* file: facile.lex
-* version: 0.2.0
-*/
