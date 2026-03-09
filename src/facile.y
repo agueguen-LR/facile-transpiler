@@ -14,18 +14,40 @@
 extern int yylex(void);
 extern int yyerror(const char *msg);
 extern int yylineno;
+extern void begin_code();
+extern void produce_code(GNode* node);
+extern void end_code();
 
 char* module_name;
 FILE* stream;
 GHashTable* table;
+
+typedef enum {
+	NODE_NULL,
+	NODE_CODE,
+	NODE_ASSIGN,
+	NODE_ADD,
+	NODE_SUB,
+	NODE_MUL,
+	NODE_DIV,
+	NODE_NUMBER,
+	NODE_IDENTIFIER,
+	NODE_PRINT,
+	NODE_READ
+} NodeType;
+
+// https://docs.gtk.org/glib/conversion-macros.html#type-conversion
+GNode* make_node(NodeType type) {
+	return g_node_new(GINT_TO_POINTER(type));
+}
 %}
 
 %define parse.error verbose
 
 %union {
 	gulong number;
-	gchar *string;
-	GNode * node;
+	gchar* string;
+	GNode* node;
 }
 
 %token TOK_IF "if"
@@ -69,26 +91,135 @@ GHashTable* table;
 %type<node> identifier
 %type<node> print
 %type<node> read
-%type<node> affectation
+%type<node> assign
 %type<node> number
+
 %%
-program: code;
+program: code {
+	begin_code();
+	produce_code($1);
+	end_code();
+	g_node_destroy($1);
+};
 
-code: code instruction |;
+code: code instruction {
+	$$ = make_node(NODE_CODE);
+	g_node_append($$, $1);
+	g_node_append($$, $2);
+} | %empty {
+	$$ = make_node(NODE_NULL);
+};
 
-instruction: assign;
+instruction: assign | print | read;
 
-assign: identifier TOK_ASSIGN expression TOK_SEMI_COLON;
+assign: identifier TOK_ASSIGN expression TOK_SEMI_COLON {
+	$$ = make_node(NODE_ASSIGN);
+	g_node_append($$, $1);
+	g_node_append($$, $3);
+};
 
-expression: identifier | number;
+print: TOK_PRINT expression TOK_SEMI_COLON {
+	$$ = make_node(NODE_PRINT);
+	g_node_append($$, $2);
+};
 
-identifier: TOK_IDENTIFIER;
+read: TOK_READ identifier TOK_SEMI_COLON {
+	$$ = make_node(NODE_READ);
+	g_node_append($$, $2);
+};
 
-number: TOK_NUMBER;
+expression: identifier | number | expression TOK_ADD expression {
+	$$ = make_node(NODE_ADD);
+	g_node_append($$, $1);
+	g_node_append($$, $3);
+};
+
+identifier: TOK_IDENTIFIER {
+	$$ = make_node(NODE_IDENTIFIER);
+	gulong value = (gulong) g_hash_table_lookup(table, $1);
+	if (!value) {
+		value = g_hash_table_size(table) + 1;
+		g_hash_table_insert(table, strdup($1), (gpointer) value);
+	}
+	g_node_append_data($$, (gpointer)value);
+};
+
+number: TOK_NUMBER {
+	$$ = make_node(NODE_NUMBER);
+	g_node_append_data($$, (gpointer)$1);
+};
 %%
 
 int yyerror(const char *msg) {
 	fprintf(stderr, "Line %d: %s\n", yylineno, msg);
+}
+
+void begin_code(){
+	fprintf(stream, ".assembly test {}\n");
+	fprintf(stream, ".assembly extern mscorlib {}\n");
+	fprintf(stream, ".method static void Main()\n{\n");
+	fprintf(stream, "\t.entrypoint\n");
+	fprintf(stream, "\t.maxstack 10\n");
+	fprintf(stream, "\t.locals init (");
+	if (g_hash_table_size(table) > 0) {
+		fprintf(stream, "int32");
+	}
+	for (int i = 1; i < g_hash_table_size(table); i++){
+		fprintf(stream, ", int32");
+	}
+	fprintf(stream, ")\n");
+}
+
+void end_code(){
+	fprintf(stream, "\tret\n");
+	fprintf(stream, "}");
+}
+
+void produce_code(GNode* node) {
+	switch ((NodeType)GPOINTER_TO_INT(node->data)) {
+
+		case NODE_CODE:
+			produce_code(g_node_nth_child(node, 0));
+			produce_code(g_node_nth_child(node, 1));
+			break;
+
+		case NODE_ASSIGN:
+			produce_code(g_node_nth_child(node, 1));
+			fprintf(stream, "\tstloc\t%ld\n", (long)g_node_nth_child(g_node_nth_child(node, 0), 0)->data - 1);
+			break;
+
+		case NODE_ADD:
+			produce_code(g_node_nth_child(node, 0));
+			produce_code(g_node_nth_child(node, 1));
+			fprintf(stream, "\tadd\n");
+			break;
+
+		case NODE_SUB:
+			produce_code(g_node_nth_child(node, 0));
+			produce_code(g_node_nth_child(node, 1));
+			fprintf(stream, "\tsub\n");
+			break;
+
+		case NODE_NUMBER:
+			fprintf(stream, "\tldc.i4\t%ld\n", (long)g_node_nth_child(node, 0)->data);
+			break;
+
+		case NODE_IDENTIFIER:
+			fprintf(stream, "\tldloc\t%ld\n", (long)g_node_nth_child(node, 0)->data - 1);
+			break;
+
+		case NODE_PRINT:
+			produce_code(g_node_nth_child(node, 0));
+			fprintf(stream, "\tcall void class [mscorlib]System.Console::WriteLine(int32)\n");
+			break;
+
+		case NODE_READ:
+			fprintf(stream, "\tcall string class [mscorlib]System.Console::ReadLine()\n");
+			fprintf(stream, "\tcall int32 int32::Parse(string)\n");
+			fprintf(stream, "\tstloc\t%ld\n", (long)g_node_nth_child(g_node_nth_child(node, 0), 0)->data - 1);
+			break;
+
+	}
 }
 
 int main(int argc, char *argv[]) {
@@ -125,6 +256,7 @@ int main(int argc, char *argv[]) {
 	strcpy(rindex(basename, '.'), ".il");
 	char *onechar = module_name;
 
+	//filename verification
 	if (!isalpha(*onechar) && *onechar != '_') {
 		free(basename);
 		fprintf(stderr, "Base input filename must start with a letter or an underscore\n");
@@ -140,6 +272,7 @@ int main(int argc, char *argv[]) {
 		onechar++;
 	}
 
+	//Open I/O streams and begin parsing
 	if (stdin = fopen(file_name_input, "r")) {
 		if (stream = fopen(basename, "w")) {
 			table = g_hash_table_new_full(g_str_hash, g_str_equal, free, NULL);
