@@ -36,6 +36,7 @@ typedef enum {
 	NODE_READ
 } NodeType;
 
+// Storing an enum in a pointer is ugly imo, but commonplace apparently
 // https://docs.gtk.org/glib/conversion-macros.html#type-conversion
 GNode* make_node(NodeType type) {
 	return g_node_new(GINT_TO_POINTER(type));
@@ -132,6 +133,20 @@ expression: identifier | number | expression TOK_ADD expression {
 	$$ = make_node(NODE_ADD);
 	g_node_append($$, $1);
 	g_node_append($$, $3);
+} | expression TOK_SUB expression {
+	$$ = make_node(NODE_SUB);
+	g_node_append($$, $1);
+	g_node_append($$, $3);
+} | expression TOK_MUL expression {
+	$$ = make_node(NODE_MUL);
+	g_node_append($$, $1);
+	g_node_append($$, $3);
+} | expression TOK_DIV expression {
+	$$ = make_node(NODE_DIV);
+	g_node_append($$, $1);
+	g_node_append($$, $3);
+} | TOK_LPAREN expression TOK_RPAREN {
+	$$ = $2;
 };
 
 identifier: TOK_IDENTIFIER {
@@ -198,6 +213,18 @@ void produce_code(GNode* node) {
 			produce_code(g_node_nth_child(node, 0));
 			produce_code(g_node_nth_child(node, 1));
 			fprintf(stream, "\tsub\n");
+			break;
+
+		case NODE_MUL:
+			produce_code(g_node_nth_child(node, 0));
+			produce_code(g_node_nth_child(node, 1));
+			fprintf(stream, "\tmul\n");
+			break;
+
+		case NODE_DIV:
+			produce_code(g_node_nth_child(node, 0));
+			produce_code(g_node_nth_child(node, 1));
+			fprintf(stream, "\tdiv\n");
 			break;
 
 		case NODE_NUMBER:
