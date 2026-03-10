@@ -1,0 +1,7 @@
+a := 0;
+b := 1;
+if false then 
+	print b;
+else
+	print a;
+endif

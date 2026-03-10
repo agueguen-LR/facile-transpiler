@@ -42,6 +42,7 @@ typedef enum {
 	NODE_AND,
 	NODE_OR,
 	NODE_IF,
+	NODE_ELSE,
 	NODE_NUMBER,
 	NODE_TRUE,
 	NODE_FALSE,
@@ -106,6 +107,7 @@ GNode* make_node(NodeType type) {
 %type<node> instruction
 %type<node> identifier
 %type<node> if
+%type<node> else
 %type<node> print
 %type<node> read
 %type<node> assign
@@ -161,12 +163,18 @@ assign: identifier TOK_ASSIGN expression TOK_SEMI_COLON {
 	g_node_append($$, $3);
 };
 
-if: TOK_IF boolean TOK_THEN code TOK_ENDIF {
+if: TOK_IF boolean TOK_THEN code else TOK_ENDIF {
 	$$ = make_node(NODE_IF);
-	// technically limits code to max 2**16 lines/columns
-	g_node_append_data($$, GINT_TO_POINTER(@1.first_line << 16 + @1.first_column));
 	g_node_append($$, $2);
 	g_node_append($$, $4);
+	g_node_append($$, $5);
+};
+
+else: TOK_ELSE code {
+	$$ = make_node(NODE_ELSE);
+	g_node_append($$, $2);
+} | %empty{
+	$$ = make_node(NODE_NULL);
 };
 
 expression: identifier | number | expression TOK_ADD expression {
@@ -358,18 +366,29 @@ void produce_code(GNode* node) {
 			break;
 
 		case NODE_IF:
+			produce_code(g_node_nth_child(node, 0));
+			fprintf(stream, "\tbrfalse IF_%d_ELSE\n", ++if_count);
 			produce_code(g_node_nth_child(node, 1));
-			fprintf(stream, "\tbrfalse IF_%d\n", ++if_count);
-			produce_code(g_node_nth_child(node, 2));
-			fprintf(stream, "IF_%d:\n", if_count);
+			if (g_node_nth_child(node, 2)->data != NODE_NULL){
+				fprintf(stream, "\tbr IF_%d\n", if_count);
+				fprintf(stream, "IF_%d_ELSE:\n", if_count);
+				produce_code(g_node_nth_child(node, 2));
+				fprintf(stream, "IF_%d:\n", if_count);
+			} else {
+				fprintf(stream, "IF_%d_ELSE:\n", if_count);
+			}
+			break;
+
+		case NODE_ELSE:
+			produce_code(g_node_nth_child(node, 0));	
 			break;
 
 		case NODE_NUMBER:
-			fprintf(stream, "\tldc.i4\t%ld\n", (long)g_node_nth_child(node, 0)->data);
+			fprintf(stream, "\tldc.i4 %ld\n", (long)g_node_nth_child(node, 0)->data);
 			break;
 
 		case NODE_IDENTIFIER:
-			fprintf(stream, "\tldloc\t%ld\n", (long)g_node_nth_child(node, 0)->data - 1);
+			fprintf(stream, "\tldloc %ld\n", (long)g_node_nth_child(node, 0)->data - 1);
 			break;
 
 		case NODE_PRINT:
