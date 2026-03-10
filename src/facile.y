@@ -23,6 +23,7 @@ FILE* stream;
 GHashTable* table;
 
 int if_count;
+int elseif_count;
 
 typedef enum {
 	NODE_NULL,
@@ -43,6 +44,7 @@ typedef enum {
 	NODE_OR,
 	NODE_IF,
 	NODE_ELSE,
+	NODE_ELSEIF,
 	NODE_NUMBER,
 	NODE_TRUE,
 	NODE_FALSE,
@@ -108,6 +110,7 @@ GNode* make_node(NodeType type) {
 %type<node> identifier
 %type<node> if
 %type<node> else
+%type<node> elseif
 %type<node> print
 %type<node> read
 %type<node> assign
@@ -163,11 +166,21 @@ assign: identifier TOK_ASSIGN expression TOK_SEMI_COLON {
 	g_node_append($$, $3);
 };
 
-if: TOK_IF boolean TOK_THEN code else TOK_ENDIF {
+if: TOK_IF boolean TOK_THEN code elseif else endif {
 	$$ = make_node(NODE_IF);
 	g_node_append($$, $2);
 	g_node_append($$, $4);
 	g_node_append($$, $5);
+	g_node_append($$, $6);
+};
+
+elseif: TOK_ELSEIF boolean TOK_THEN code elseif {
+	$$ = make_node(NODE_ELSEIF);
+	g_node_append($$, $2);
+	g_node_append($$, $4);
+	g_node_append($$, $5);
+} | %empty {
+	$$ = make_node(NODE_NULL);
 };
 
 else: TOK_ELSE code {
@@ -176,6 +189,8 @@ else: TOK_ELSE code {
 } | %empty{
 	$$ = make_node(NODE_NULL);
 };
+
+endif: TOK_ENDIF | TOK_END;
 
 expression: identifier | number | expression TOK_ADD expression {
 	$$ = make_node(NODE_ADD);
@@ -367,16 +382,27 @@ void produce_code(GNode* node) {
 
 		case NODE_IF:
 			produce_code(g_node_nth_child(node, 0));
-			fprintf(stream, "\tbrfalse IF_%d_ELSE\n", ++if_count);
+			fprintf(stream, "\tbrfalse END_OF_IF_%d\n", ++if_count);
 			produce_code(g_node_nth_child(node, 1));
-			if (g_node_nth_child(node, 2)->data != NODE_NULL){
-				fprintf(stream, "\tbr IF_%d\n", if_count);
-				fprintf(stream, "IF_%d_ELSE:\n", if_count);
-				produce_code(g_node_nth_child(node, 2));
-				fprintf(stream, "IF_%d:\n", if_count);
-			} else {
-				fprintf(stream, "IF_%d_ELSE:\n", if_count);
-			}
+			fprintf(stream, "\tbr END_OF_CONDITIONAL_SECTION_%d\n", if_count);
+			fprintf(stream, "END_OF_IF_%d:\n", if_count);
+
+			//elseif
+			elseif_count = 0;
+			produce_code(g_node_nth_child(node, 2));
+			//else
+			produce_code(g_node_nth_child(node, 3));
+
+			fprintf(stream, "END_OF_CONDITIONAL_SECTION_%d:\n", if_count);
+			break;
+
+		case NODE_ELSEIF:
+			produce_code(g_node_nth_child(node, 0));
+			fprintf(stream, "\tbrfalse END_OF_IF_%d_ELSEIF_%d\n", if_count, ++elseif_count);
+			produce_code(g_node_nth_child(node, 1));
+			fprintf(stream, "\tbr END_OF_CONDITIONAL_SECTION_%d\n", if_count);
+			fprintf(stream, "END_OF_IF_%d_ELSEIF_%d:\n", if_count, elseif_count);
+			produce_code(g_node_nth_child(node, 2));
 			break;
 
 		case NODE_ELSE:
@@ -401,6 +427,8 @@ void produce_code(GNode* node) {
 			fprintf(stream, "\tcall int32 int32::Parse(string)\n");
 			fprintf(stream, "\tstloc\t%ld\n", (long)g_node_nth_child(g_node_nth_child(node, 0), 0)->data - 1);
 			break;
+
+		default:
 
 	}
 }

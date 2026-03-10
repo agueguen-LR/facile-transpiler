@@ -2,6 +2,10 @@ a := 0;
 b := 1;
 if false then 
 	print b;
-else
+elseif false then
+	print b;
+elseif true then
 	print a;
-endif
+else
+	print b;
+end
