@@ -1,0 +1,13 @@
+a := 0;
+b := 1;
+c := 0;
+if a < b then print a; endif
+if b > a then print a; endif
+if a >= c then print a; endif
+if a <= c then print a; endif
+if a = c then print a; endif
+if a # b then print a; endif
+if true then print a; endif
+if not false then print a; endif
+if ( not a = b ) and a # c then print b; endif
+if not (a = b and a # c) then print a; endif

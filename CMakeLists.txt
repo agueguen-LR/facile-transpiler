@@ -1,9 +1,10 @@
-# file: CMakeLists.txt
-# version: 0.2.0
+# @file: CMakeLists.txt
+# @author agueguen-LR <agueguen@proton.me>
+# @date 2026
 
 cmake_minimum_required(VERSION 3.10)
 
-project(facile VERSION 0.2.0 LANGUAGES C)
+project(facile LANGUAGES C)
 
 find_package(FLEX)
 
@@ -24,6 +25,7 @@ bison_target(
 	FACILE_PARSER
 	"${CMAKE_SOURCE_DIR}/src/facile.y"
 	"${CMAKE_CURRENT_BINARY_DIR}/facile.y.c"
+	COMPILE_FLAGS "-Wcounterexamples"
 )
 
 add_executable(

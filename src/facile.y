@@ -22,6 +22,8 @@ char* module_name;
 FILE* stream;
 GHashTable* table;
 
+int if_count;
+
 typedef enum {
 	NODE_NULL,
 	NODE_CODE,
@@ -30,7 +32,19 @@ typedef enum {
 	NODE_SUB,
 	NODE_MUL,
 	NODE_DIV,
+	NODE_SUPEQ,
+	NODE_SUBEQ,
+	NODE_MORE_THAN,
+	NODE_LESS_THAN,
+	NODE_EQ,
+	NODE_DIFF,
+	NODE_NOT,
+	NODE_AND,
+	NODE_OR,
+	NODE_IF,
 	NODE_NUMBER,
+	NODE_TRUE,
+	NODE_FALSE,
 	NODE_IDENTIFIER,
 	NODE_PRINT,
 	NODE_READ
@@ -81,20 +95,23 @@ GNode* make_node(NodeType type) {
 %token TOK_LESS_THAN "<"
 %token TOK_EQ "="
 %token TOK_DIFF "#"
-%token TOK_NOT "not"
-%token TOK_AND "and"
-%token TOK_OR "or"
+%right TOK_NOT "not"
+%left TOK_AND "and"
+%left TOK_OR "or"
 %token<number> TOK_NUMBER "number"
 
 %type<node> code
 %type<node> expression
+%type<node> boolean
 %type<node> instruction
 %type<node> identifier
+%type<node> if
 %type<node> print
 %type<node> read
 %type<node> assign
 %type<node> number
 
+// This follows the same order as ../grammar.ebnf for organisation
 %%
 program: code {
 	begin_code();
@@ -111,12 +128,26 @@ code: code instruction {
 	$$ = make_node(NODE_NULL);
 };
 
-instruction: assign | print | read;
+instruction: read | print | assign | if;
 
-assign: identifier TOK_ASSIGN expression TOK_SEMI_COLON {
-	$$ = make_node(NODE_ASSIGN);
-	g_node_append($$, $1);
-	g_node_append($$, $3);
+identifier: TOK_IDENTIFIER {
+	$$ = make_node(NODE_IDENTIFIER);
+	gulong value = (gulong) g_hash_table_lookup(table, $1);
+	if (!value) {
+		value = g_hash_table_size(table) + 1;
+		g_hash_table_insert(table, strdup($1), (gpointer) value);
+	}
+	g_node_append_data($$, (gpointer)value);
+};
+
+number: TOK_NUMBER {
+	$$ = make_node(NODE_NUMBER);
+	g_node_append_data($$, (gpointer)$1);
+};
+
+read: TOK_READ identifier TOK_SEMI_COLON {
+	$$ = make_node(NODE_READ);
+	g_node_append($$, $2);
 };
 
 print: TOK_PRINT expression TOK_SEMI_COLON {
@@ -124,9 +155,18 @@ print: TOK_PRINT expression TOK_SEMI_COLON {
 	g_node_append($$, $2);
 };
 
-read: TOK_READ identifier TOK_SEMI_COLON {
-	$$ = make_node(NODE_READ);
+assign: identifier TOK_ASSIGN expression TOK_SEMI_COLON {
+	$$ = make_node(NODE_ASSIGN);
+	g_node_append($$, $1);
+	g_node_append($$, $3);
+};
+
+if: TOK_IF boolean TOK_THEN code TOK_ENDIF {
+	$$ = make_node(NODE_IF);
+	// technically limits code to max 2**16 lines/columns
+	g_node_append_data($$, GINT_TO_POINTER(@1.first_line << 16 + @1.first_column));
 	g_node_append($$, $2);
+	g_node_append($$, $4);
 };
 
 expression: identifier | number | expression TOK_ADD expression {
@@ -149,20 +189,49 @@ expression: identifier | number | expression TOK_ADD expression {
 	$$ = $2;
 };
 
-identifier: TOK_IDENTIFIER {
-	$$ = make_node(NODE_IDENTIFIER);
-	gulong value = (gulong) g_hash_table_lookup(table, $1);
-	if (!value) {
-		value = g_hash_table_size(table) + 1;
-		g_hash_table_insert(table, strdup($1), (gpointer) value);
-	}
-	g_node_append_data($$, (gpointer)value);
+boolean: TOK_TRUE {
+	$$ = make_node(NODE_TRUE);
+} | TOK_FALSE {
+	$$ = make_node(NODE_FALSE);
+} | expression TOK_SUPEQ expression {
+	$$ = make_node(NODE_SUPEQ);
+	g_node_append($$, $1);
+	g_node_append($$, $3);
+} | expression TOK_SUBEQ expression {
+	$$ = make_node(NODE_SUBEQ);
+	g_node_append($$, $1);
+	g_node_append($$, $3);
+} | expression TOK_MORE_THAN expression {
+	$$ = make_node(NODE_MORE_THAN);
+	g_node_append($$, $1);
+	g_node_append($$, $3);
+} | expression TOK_LESS_THAN expression {
+	$$ = make_node(NODE_LESS_THAN);
+	g_node_append($$, $1);
+	g_node_append($$, $3);
+} | expression TOK_EQ expression {
+	$$ = make_node(NODE_EQ);
+	g_node_append($$, $1);
+	g_node_append($$, $3);
+} | expression TOK_DIFF expression {
+	$$ = make_node(NODE_DIFF);
+	g_node_append($$, $1);
+	g_node_append($$, $3);
+} | TOK_NOT boolean {
+	$$ = make_node(NODE_NOT);
+	g_node_append($$, $2);
+} | boolean TOK_AND boolean {
+	$$ = make_node(NODE_AND);
+	g_node_append($$, $1);
+	g_node_append($$, $3);
+} | boolean TOK_OR boolean {
+	$$ = make_node(NODE_OR);
+	g_node_append($$, $1);
+	g_node_append($$, $3);
+} | TOK_LPAREN boolean TOK_RPAREN {
+	$$ = $2;
 };
 
-number: TOK_NUMBER {
-	$$ = make_node(NODE_NUMBER);
-	g_node_append_data($$, (gpointer)$1);
-};
 %%
 
 int yyerror(const char *msg) {
@@ -225,6 +294,74 @@ void produce_code(GNode* node) {
 			produce_code(g_node_nth_child(node, 0));
 			produce_code(g_node_nth_child(node, 1));
 			fprintf(stream, "\tdiv\n");
+			break;
+
+		case NODE_TRUE:
+			fprintf(stream, "\tldc.i4.1\n");
+			break;
+
+		case NODE_FALSE:
+			fprintf(stream, "\tldc.i4.0\n");
+			break;
+
+		case NODE_SUPEQ:
+			produce_code(g_node_nth_child(node, 0));
+			produce_code(g_node_nth_child(node, 1));
+			fprintf(stream, "\tclt\n\tldc.i4.0\n\tceq\n");
+			break;
+
+		case NODE_SUBEQ:
+			produce_code(g_node_nth_child(node, 0));
+			produce_code(g_node_nth_child(node, 1));
+			fprintf(stream, "\tcgt\n\tldc.i4.0\n\tceq\n");
+			break;
+
+		case NODE_MORE_THAN:
+			produce_code(g_node_nth_child(node, 0));
+			produce_code(g_node_nth_child(node, 1));
+			fprintf(stream, "\tcgt\n");
+			break;
+
+		case NODE_LESS_THAN:
+			produce_code(g_node_nth_child(node, 0));
+			produce_code(g_node_nth_child(node, 1));
+			fprintf(stream, "\tclt\n");
+			break;
+
+		case NODE_EQ:
+			produce_code(g_node_nth_child(node, 0));
+			produce_code(g_node_nth_child(node, 1));
+			fprintf(stream, "\tceq\n");
+			break;
+		
+		case NODE_DIFF:
+			produce_code(g_node_nth_child(node, 0));
+			produce_code(g_node_nth_child(node, 1));
+			fprintf(stream, "\tceq\n\tldc.i4.0\n\tceq\n");
+			break;
+
+		case NODE_NOT:
+			produce_code(g_node_nth_child(node, 0));
+			fprintf(stream, "\tldc.i4.0\n\tceq\n");
+			break;
+
+		case NODE_AND:
+			produce_code(g_node_nth_child(node, 0));
+			produce_code(g_node_nth_child(node, 1));
+			fprintf(stream, "\tand\n");
+			break;
+
+		case NODE_OR:
+			produce_code(g_node_nth_child(node, 0));
+			produce_code(g_node_nth_child(node, 1));
+			fprintf(stream, "\tor\n");
+			break;
+
+		case NODE_IF:
+			produce_code(g_node_nth_child(node, 1));
+			fprintf(stream, "\tbrfalse IF_%d\n", ++if_count);
+			produce_code(g_node_nth_child(node, 2));
+			fprintf(stream, "IF_%d:\n", if_count);
 			break;
 
 		case NODE_NUMBER:
