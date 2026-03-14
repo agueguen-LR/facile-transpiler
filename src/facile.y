@@ -42,6 +42,11 @@ typedef enum {
 	NODE_IF,
 	NODE_ELSE,
 	NODE_ELSEIF,
+	NODE_WHILE,
+	NODE_CODE_WHILE,
+	NODE_CONTINUE,
+	NODE_BREAK,
+	NODE_WHILE_INSTRUCTION,
 	NODE_NUMBER,
 	NODE_TRUE,
 	NODE_FALSE,
@@ -108,6 +113,9 @@ GNode* make_node(NodeType type) {
 %type<node> if
 %type<node> else
 %type<node> elseif
+%type<node> while
+%type<node> code_while
+%type<node> while_instruction
 %type<node> print
 %type<node> read
 %type<node> assign
@@ -120,7 +128,7 @@ program: code {
 	produce_code($1, NULL);
 	end_code();
 	g_node_destroy($1);
-};
+}
 
 code: code instruction {
 	$$ = make_node(NODE_CODE);
@@ -128,9 +136,9 @@ code: code instruction {
 	g_node_append($$, $2);
 } | %empty {
 	$$ = make_node(NODE_NULL);
-};
+}
 
-instruction: read | print | assign | if;
+instruction: read | print | assign | if | while
 
 identifier: TOK_IDENTIFIER {
 	$$ = make_node(NODE_IDENTIFIER);
@@ -140,28 +148,28 @@ identifier: TOK_IDENTIFIER {
 		g_hash_table_insert(table, strdup($1), (gpointer) value);
 	}
 	g_node_append_data($$, GINT_TO_POINTER(value));
-};
+}
 
 number: TOK_NUMBER {
 	$$ = make_node(NODE_NUMBER);
 	g_node_append_data($$, GINT_TO_POINTER($1));
-};
+}
 
 read: TOK_READ identifier TOK_SEMI_COLON {
 	$$ = make_node(NODE_READ);
 	g_node_append($$, $2);
-};
+}
 
 print: TOK_PRINT expression TOK_SEMI_COLON {
 	$$ = make_node(NODE_PRINT);
 	g_node_append($$, $2);
-};
+}
 
 assign: identifier TOK_ASSIGN expression TOK_SEMI_COLON {
 	$$ = make_node(NODE_ASSIGN);
 	g_node_append($$, $1);
 	g_node_append($$, $3);
-};
+}
 
 if: TOK_IF boolean TOK_THEN code elseif else endif {
 	$$ = make_node(NODE_IF);
@@ -170,7 +178,7 @@ if: TOK_IF boolean TOK_THEN code elseif else endif {
 	g_node_append($$, $5);
 	g_node_append($$, $6);
 	g_node_append_data($$, g_strdup_printf("L%d_C%d", @1.first_line, @1.first_column));
-};
+}
 
 elseif: TOK_ELSEIF boolean TOK_THEN code elseif {
 	$$ = make_node(NODE_ELSEIF);
@@ -180,16 +188,47 @@ elseif: TOK_ELSEIF boolean TOK_THEN code elseif {
 	g_node_append_data($$, g_strdup_printf("L%d_C%d", @1.first_line, @1.first_column));
 } | %empty {
 	$$ = make_node(NODE_NULL);
-};
+}
 
 else: TOK_ELSE code {
 	$$ = make_node(NODE_ELSE);
 	g_node_append($$, $2);
 } | %empty{
 	$$ = make_node(NODE_NULL);
-};
+}
 
-endif: TOK_ENDIF | TOK_END;
+endif: TOK_ENDIF | TOK_END
+
+while: TOK_WHILE boolean TOK_DO code_while end_while {
+	$$ = make_node(NODE_WHILE);
+	g_node_append($$, $2);
+	g_node_append($$, $4);
+	g_node_append_data($$, g_strdup_printf("L%d_C%d", @1.first_line, @1.first_column));
+}
+
+code_while: code_while while_instruction {
+	$$ = make_node(NODE_CODE_WHILE);
+	g_node_append($$, $1);
+	g_node_append($$, $2);
+} | %empty {
+	$$ = make_node(NODE_NULL); 
+}
+
+/* This method of handling 'break' and 'continue' is bad, any break or continue that
+appears in an if-else statement won't use while_instruction and will cause a syntax error.
+As this is a university student project, I'm choosing to leave this as is, not only to save
+myself some time (other projects I must take care of), but also to follow the instructions
+given for this project to the letter, not straying from the syntax/railroad diagram that
+was given to follow. */
+while_instruction: TOK_CONTINUE {
+	$$ = make_node(NODE_CONTINUE);
+} | TOK_BREAK {
+	$$ = make_node(NODE_BREAK);
+} | instruction {
+	$$ = $1;
+}
+
+end_while: TOK_ENDWHILE | TOK_END;
 
 expression: identifier | number | expression TOK_ADD expression {
 	$$ = make_node(NODE_ADD);
@@ -282,7 +321,9 @@ void end_code(){
 }
 
 /*
-*	data parameter allows passing of any data, like jump labels, down the recursive chain
+* Produces the CIL code.
+* Cases are in the same order as everything else, like ../grammar.ebnf, for organization.
+*	@param data This parameter allows passing of any data, like jump labels, down the recursive chain
 */
 void produce_code(GNode* node, gpointer data) {
 	switch ((NodeType)GPOINTER_TO_INT(node->data)) {
@@ -292,9 +333,109 @@ void produce_code(GNode* node, gpointer data) {
 			produce_code(g_node_nth_child(node, 1), NULL);
 			break;
 
+		case NODE_NUMBER:
+			fprintf(stream, "\tldc.i4 %ld\n", (long)GPOINTER_TO_SIZE(g_node_nth_child(node, 0)->data));
+			break;
+
+		case NODE_IDENTIFIER:
+			fprintf(stream, "\tldloc %ld\n", (long)g_node_nth_child(node, 0)->data - 1);
+			break;
+
+		case NODE_READ:
+			fprintf(stream, "\tcall string class [mscorlib]System.Console::ReadLine()\n");
+			fprintf(stream, "\tcall int32 int32::Parse(string)\n");
+			fprintf(stream, "\tstloc\t%ld\n", (long)g_node_nth_child(g_node_nth_child(node, 0), 0)->data - 1);
+			break;
+
+		case NODE_PRINT:
+			produce_code(g_node_nth_child(node, 0), NULL);
+			fprintf(stream, "\tcall void class [mscorlib]System.Console::WriteLine(int32)\n");
+			break;
+
 		case NODE_ASSIGN:
 			produce_code(g_node_nth_child(node, 1), NULL);
 			fprintf(stream, "\tstloc\t%ld\n", (long)g_node_nth_child(g_node_nth_child(node, 0), 0)->data - 1);
+			break;
+
+		case NODE_IF:
+			//boolean
+			produce_code(g_node_nth_child(node, 0), NULL);
+
+			//contains "L<line_number>_C<token_position_in_line>"
+			gchar* label_if = (gchar*)g_node_nth_child(node, 4)->data;
+			fprintf(stream, "\tbrfalse END_OF_IF_%s\n", label_if);
+
+			//code
+			produce_code(g_node_nth_child(node, 1), label_if);
+
+			fprintf(stream, "\tbr END_OF_CONDITIONAL_SECTION_%s\n", label_if);
+			fprintf(stream, "END_OF_IF_%s:\n", label_if);
+
+			//elseif, provide label so elseifs can jump to end of conditional section
+			produce_code(g_node_nth_child(node, 2), label_if);
+			//else
+			produce_code(g_node_nth_child(node, 3), NULL);
+
+			fprintf(stream, "END_OF_CONDITIONAL_SECTION_%s:\n", label_if);
+			g_free(label_if);
+			break;
+
+		case NODE_ELSEIF:
+			// in this case, produce_code's data parameter contains NODE_IF's label
+
+			//boolean
+			produce_code(g_node_nth_child(node, 0), NULL);
+
+			//contains "L<line_number>_C<token_position_in_line>"
+			gchar* label_elseif = (gchar*)g_node_nth_child(node, 3)->data;
+			fprintf(stream, "\tbrfalse END_OF_ELSEIF_%s\n", label_elseif);
+
+			//code
+			produce_code(g_node_nth_child(node, 1), NULL);
+
+			fprintf(stream, "\tbr END_OF_CONDITIONAL_SECTION_%s\n", (gchar*)data);
+			fprintf(stream, "END_OF_ELSEIF_%s:\n", label_elseif);
+			g_free(label_elseif);
+
+			//elseif, continue passing NODE_IF's label for jumps to end of conditional section
+			produce_code(g_node_nth_child(node, 2), data);
+			break;
+
+		case NODE_ELSE:
+			produce_code(g_node_nth_child(node, 0), NULL);	
+			break;
+
+		case NODE_WHILE:
+			//contains "L<line_number>_C<token_position_in_line>"
+			gchar* label_while = (gchar*)g_node_nth_child(node, 2)->data;
+			fprintf(stream, "START_OF_WHILE_%s:\n", label_while);
+
+			//boolean
+			produce_code(g_node_nth_child(node, 0), NULL);
+			fprintf(stream, "\tbrfalse END_OF_WHILE_%s\n", label_while);
+
+			//code_while
+			produce_code(g_node_nth_child(node, 1), label_while);
+
+			fprintf(stream, "\tbr START_OF_WHILE_%s\n", label_while);
+			fprintf(stream, "END_OF_WHILE_%s:\n", label_while);
+
+			g_free(label_while);
+			break;
+
+		case NODE_CODE_WHILE:
+			produce_code(g_node_nth_child(node, 0), data);
+			produce_code(g_node_nth_child(node, 1), data);
+			break;
+
+		case NODE_CONTINUE:
+			// in this case, produce_code's data parameter contains NODE_WHILE's label
+			fprintf(stream, "\tbr START_OF_WHILE_%s\n", (gchar*)data);
+			break;
+
+		case NODE_BREAK:
+			// in this case, produce_code's data parameter contains NODE_WHILE's label
+			fprintf(stream, "\tbr END_OF_WHILE_%s\n", (gchar*)data);
 			break;
 
 		case NODE_ADD:
@@ -382,75 +523,7 @@ void produce_code(GNode* node, gpointer data) {
 			fprintf(stream, "\tor\n");
 			break;
 
-		case NODE_IF:
-			//boolean
-			produce_code(g_node_nth_child(node, 0), NULL);
-
-			//contains "L<line_number>_C<token_position_in_line>"
-			gchar* label = (gchar*)g_node_nth_child(node, 4)->data;
-			fprintf(stream, "\tbrfalse END_OF_IF_%s\n", label);
-
-			//code
-			produce_code(g_node_nth_child(node, 1), label);
-
-			fprintf(stream, "\tbr END_OF_CONDITIONAL_SECTION_%s\n", label);
-			fprintf(stream, "END_OF_IF_%s:\n", label);
-
-			//elseif, provide label so elseifs can jump to end of conditional section
-			produce_code(g_node_nth_child(node, 2), label);
-			//else
-			produce_code(g_node_nth_child(node, 3), NULL);
-
-			fprintf(stream, "END_OF_CONDITIONAL_SECTION_%s:\n", label);
-			g_free(label);
-			break;
-
-		case NODE_ELSEIF:
-			// in this case, produce_code's data parameter contains NODE_IF's label
-
-			//boolean
-			produce_code(g_node_nth_child(node, 0), NULL);
-
-			//contains "L<line_number>_C<token_position_in_line>"
-			gchar* label_elseif = (gchar*)g_node_nth_child(node, 3)->data;
-			fprintf(stream, "\tbrfalse END_OF_ELSEIF_%s\n", label_elseif);
-
-			//code
-			produce_code(g_node_nth_child(node, 1), NULL);
-
-			fprintf(stream, "\tbr END_OF_CONDITIONAL_SECTION_%s\n", (gchar*)data);
-			fprintf(stream, "END_OF_ELSEIF_%s:\n", label_elseif);
-			g_free(label_elseif);
-
-			//elseif, continue passing NODE_IF's label for jumps to end of conditional section
-			produce_code(g_node_nth_child(node, 2), data);
-			break;
-
-		case NODE_ELSE:
-			produce_code(g_node_nth_child(node, 0), NULL);	
-			break;
-
-		case NODE_NUMBER:
-			fprintf(stream, "\tldc.i4 %ld\n", (long)GPOINTER_TO_SIZE(g_node_nth_child(node, 0)->data));
-			break;
-
-		case NODE_IDENTIFIER:
-			fprintf(stream, "\tldloc %ld\n", (long)g_node_nth_child(node, 0)->data - 1);
-			break;
-
-		case NODE_PRINT:
-			produce_code(g_node_nth_child(node, 0), NULL);
-			fprintf(stream, "\tcall void class [mscorlib]System.Console::WriteLine(int32)\n");
-			break;
-
-		case NODE_READ:
-			fprintf(stream, "\tcall string class [mscorlib]System.Console::ReadLine()\n");
-			fprintf(stream, "\tcall int32 int32::Parse(string)\n");
-			fprintf(stream, "\tstloc\t%ld\n", (long)g_node_nth_child(g_node_nth_child(node, 0), 0)->data - 1);
-			break;
-
 		default:
-
 	}
 }
 
