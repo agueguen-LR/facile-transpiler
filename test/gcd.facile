@@ -1,0 +1,16 @@
+a := 1071;
+b := 462;
+
+while b # 0 do
+	temp := b;
+
+	r := a;
+	while r >= b do
+		r := r - b;
+	endwhile
+
+	a := temp;
+	b := r;
+endwhile
+
+print a;
