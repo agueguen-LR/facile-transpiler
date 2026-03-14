@@ -402,7 +402,7 @@ void produce_code(GNode* node, gpointer data) {
 			produce_code(g_node_nth_child(node, 3), NULL);
 
 			fprintf(stream, "END_OF_CONDITIONAL_SECTION_%s:\n", label);
-			// g_free(label);
+			g_free(label);
 			break;
 
 		case NODE_ELSEIF:
@@ -420,6 +420,7 @@ void produce_code(GNode* node, gpointer data) {
 
 			fprintf(stream, "\tbr END_OF_CONDITIONAL_SECTION_%s\n", (gchar*)data);
 			fprintf(stream, "END_OF_ELSEIF_%s:\n", label_elseif);
+			g_free(label_elseif);
 
 			//elseif, continue passing NODE_IF's label for jumps to end of conditional section
 			produce_code(g_node_nth_child(node, 2), data);

@@ -17,6 +17,7 @@
         mono
         glib
         pkg-config
+        valgrind
       ];
 
       shellHook = ''
