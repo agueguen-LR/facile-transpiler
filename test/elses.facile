@@ -9,3 +9,14 @@ elseif true then
 else
 	print b;
 end
+
+
+if true then
+	if false then
+		print b;
+	elseif true then
+		print a;
+	endif
+elseif false then
+	print b;
+end

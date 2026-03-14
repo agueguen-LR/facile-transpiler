@@ -9,6 +9,14 @@
 	#include <glib.h>
 
 	#include "facile.y.h"
+
+	int yycolumn = 0;
+	#define YY_USER_ACTION \
+    yylloc.first_line = yylineno; \
+    yylloc.first_column = yycolumn; \
+    yylloc.last_line = yylineno; \
+    yylloc.last_column = yycolumn + yyleng - 1; \
+    yycolumn += yyleng;
 %}
 
 %option yylineno
@@ -187,7 +195,8 @@ or {
 	return TOK_NUMBER;
 }
 
-[ \t\n] ;
+[ \t] ;
+[\n] { yycolumn = 0; }
 
 . {
 	return yytext[0];

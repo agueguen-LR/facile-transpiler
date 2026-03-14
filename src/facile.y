@@ -15,15 +15,12 @@ extern int yylex(void);
 extern int yyerror(const char *msg);
 extern int yylineno;
 extern void begin_code();
-extern void produce_code(GNode* node);
+extern void produce_code(GNode* node, void* data);
 extern void end_code();
 
 char* module_name;
 FILE* stream;
 GHashTable* table;
-
-int if_count;
-int elseif_count;
 
 typedef enum {
 	NODE_NULL,
@@ -120,7 +117,7 @@ GNode* make_node(NodeType type) {
 %%
 program: code {
 	begin_code();
-	produce_code($1);
+	produce_code($1, NULL);
 	end_code();
 	g_node_destroy($1);
 };
@@ -142,12 +139,12 @@ identifier: TOK_IDENTIFIER {
 		value = g_hash_table_size(table) + 1;
 		g_hash_table_insert(table, strdup($1), (gpointer) value);
 	}
-	g_node_append_data($$, (gpointer)value);
+	g_node_append_data($$, GINT_TO_POINTER(value));
 };
 
 number: TOK_NUMBER {
 	$$ = make_node(NODE_NUMBER);
-	g_node_append_data($$, (gpointer)$1);
+	g_node_append_data($$, GINT_TO_POINTER($1));
 };
 
 read: TOK_READ identifier TOK_SEMI_COLON {
@@ -172,6 +169,7 @@ if: TOK_IF boolean TOK_THEN code elseif else endif {
 	g_node_append($$, $4);
 	g_node_append($$, $5);
 	g_node_append($$, $6);
+	g_node_append_data($$, g_strdup_printf("L%d_C%d", @1.first_line, @1.first_column));
 };
 
 elseif: TOK_ELSEIF boolean TOK_THEN code elseif {
@@ -179,6 +177,7 @@ elseif: TOK_ELSEIF boolean TOK_THEN code elseif {
 	g_node_append($$, $2);
 	g_node_append($$, $4);
 	g_node_append($$, $5);
+	g_node_append_data($$, g_strdup_printf("L%d_C%d", @1.first_line, @1.first_column));
 } | %empty {
 	$$ = make_node(NODE_NULL);
 };
@@ -282,40 +281,43 @@ void end_code(){
 	fprintf(stream, "}");
 }
 
-void produce_code(GNode* node) {
+/*
+*	data parameter allows passing of any data, like jump labels, down the recursive chain
+*/
+void produce_code(GNode* node, gpointer data) {
 	switch ((NodeType)GPOINTER_TO_INT(node->data)) {
 
 		case NODE_CODE:
-			produce_code(g_node_nth_child(node, 0));
-			produce_code(g_node_nth_child(node, 1));
+			produce_code(g_node_nth_child(node, 0), NULL);
+			produce_code(g_node_nth_child(node, 1), NULL);
 			break;
 
 		case NODE_ASSIGN:
-			produce_code(g_node_nth_child(node, 1));
+			produce_code(g_node_nth_child(node, 1), NULL);
 			fprintf(stream, "\tstloc\t%ld\n", (long)g_node_nth_child(g_node_nth_child(node, 0), 0)->data - 1);
 			break;
 
 		case NODE_ADD:
-			produce_code(g_node_nth_child(node, 0));
-			produce_code(g_node_nth_child(node, 1));
+			produce_code(g_node_nth_child(node, 0), NULL);
+			produce_code(g_node_nth_child(node, 1), NULL);
 			fprintf(stream, "\tadd\n");
 			break;
 
 		case NODE_SUB:
-			produce_code(g_node_nth_child(node, 0));
-			produce_code(g_node_nth_child(node, 1));
+			produce_code(g_node_nth_child(node, 0), NULL);
+			produce_code(g_node_nth_child(node, 1), NULL);
 			fprintf(stream, "\tsub\n");
 			break;
 
 		case NODE_MUL:
-			produce_code(g_node_nth_child(node, 0));
-			produce_code(g_node_nth_child(node, 1));
+			produce_code(g_node_nth_child(node, 0), NULL);
+			produce_code(g_node_nth_child(node, 1), NULL);
 			fprintf(stream, "\tmul\n");
 			break;
 
 		case NODE_DIV:
-			produce_code(g_node_nth_child(node, 0));
-			produce_code(g_node_nth_child(node, 1));
+			produce_code(g_node_nth_child(node, 0), NULL);
+			produce_code(g_node_nth_child(node, 1), NULL);
 			fprintf(stream, "\tdiv\n");
 			break;
 
@@ -328,89 +330,107 @@ void produce_code(GNode* node) {
 			break;
 
 		case NODE_SUPEQ:
-			produce_code(g_node_nth_child(node, 0));
-			produce_code(g_node_nth_child(node, 1));
+			produce_code(g_node_nth_child(node, 0), NULL);
+			produce_code(g_node_nth_child(node, 1), NULL);
 			fprintf(stream, "\tclt\n\tldc.i4.0\n\tceq\n");
 			break;
 
 		case NODE_SUBEQ:
-			produce_code(g_node_nth_child(node, 0));
-			produce_code(g_node_nth_child(node, 1));
+			produce_code(g_node_nth_child(node, 0), NULL);
+			produce_code(g_node_nth_child(node, 1), NULL);
 			fprintf(stream, "\tcgt\n\tldc.i4.0\n\tceq\n");
 			break;
 
 		case NODE_MORE_THAN:
-			produce_code(g_node_nth_child(node, 0));
-			produce_code(g_node_nth_child(node, 1));
+			produce_code(g_node_nth_child(node, 0), NULL);
+			produce_code(g_node_nth_child(node, 1), NULL);
 			fprintf(stream, "\tcgt\n");
 			break;
 
 		case NODE_LESS_THAN:
-			produce_code(g_node_nth_child(node, 0));
-			produce_code(g_node_nth_child(node, 1));
+			produce_code(g_node_nth_child(node, 0), NULL);
+			produce_code(g_node_nth_child(node, 1), NULL);
 			fprintf(stream, "\tclt\n");
 			break;
 
 		case NODE_EQ:
-			produce_code(g_node_nth_child(node, 0));
-			produce_code(g_node_nth_child(node, 1));
+			produce_code(g_node_nth_child(node, 0), NULL);
+			produce_code(g_node_nth_child(node, 1), NULL);
 			fprintf(stream, "\tceq\n");
 			break;
 		
 		case NODE_DIFF:
-			produce_code(g_node_nth_child(node, 0));
-			produce_code(g_node_nth_child(node, 1));
+			produce_code(g_node_nth_child(node, 0), NULL);
+			produce_code(g_node_nth_child(node, 1), NULL);
 			fprintf(stream, "\tceq\n\tldc.i4.0\n\tceq\n");
 			break;
 
 		case NODE_NOT:
-			produce_code(g_node_nth_child(node, 0));
+			produce_code(g_node_nth_child(node, 0), NULL);
 			fprintf(stream, "\tldc.i4.0\n\tceq\n");
 			break;
 
 		case NODE_AND:
-			produce_code(g_node_nth_child(node, 0));
-			produce_code(g_node_nth_child(node, 1));
+			produce_code(g_node_nth_child(node, 0), NULL);
+			produce_code(g_node_nth_child(node, 1), NULL);
 			fprintf(stream, "\tand\n");
 			break;
 
 		case NODE_OR:
-			produce_code(g_node_nth_child(node, 0));
-			produce_code(g_node_nth_child(node, 1));
+			produce_code(g_node_nth_child(node, 0), NULL);
+			produce_code(g_node_nth_child(node, 1), NULL);
 			fprintf(stream, "\tor\n");
 			break;
 
 		case NODE_IF:
-			produce_code(g_node_nth_child(node, 0));
-			fprintf(stream, "\tbrfalse END_OF_IF_%d\n", ++if_count);
-			produce_code(g_node_nth_child(node, 1));
-			fprintf(stream, "\tbr END_OF_CONDITIONAL_SECTION_%d\n", if_count);
-			fprintf(stream, "END_OF_IF_%d:\n", if_count);
+			//boolean
+			produce_code(g_node_nth_child(node, 0), NULL);
 
-			//elseif
-			elseif_count = 0;
-			produce_code(g_node_nth_child(node, 2));
+			//contains "L<line_number>_C<token_position_in_line>"
+			gchar* label = (gchar*)g_node_nth_child(node, 4)->data;
+			fprintf(stream, "\tbrfalse END_OF_IF_%s\n", label);
+
+			//code
+			produce_code(g_node_nth_child(node, 1), label);
+
+			fprintf(stream, "\tbr END_OF_CONDITIONAL_SECTION_%s\n", label);
+			fprintf(stream, "END_OF_IF_%s:\n", label);
+
+			//elseif, provide label so elseifs can jump to end of conditional section
+			produce_code(g_node_nth_child(node, 2), label);
 			//else
-			produce_code(g_node_nth_child(node, 3));
+			produce_code(g_node_nth_child(node, 3), NULL);
 
-			fprintf(stream, "END_OF_CONDITIONAL_SECTION_%d:\n", if_count);
+			fprintf(stream, "END_OF_CONDITIONAL_SECTION_%s:\n", label);
+			// g_free(label);
 			break;
 
 		case NODE_ELSEIF:
-			produce_code(g_node_nth_child(node, 0));
-			fprintf(stream, "\tbrfalse END_OF_IF_%d_ELSEIF_%d\n", if_count, ++elseif_count);
-			produce_code(g_node_nth_child(node, 1));
-			fprintf(stream, "\tbr END_OF_CONDITIONAL_SECTION_%d\n", if_count);
-			fprintf(stream, "END_OF_IF_%d_ELSEIF_%d:\n", if_count, elseif_count);
-			produce_code(g_node_nth_child(node, 2));
+			// in this case, produce_code's data parameter contains NODE_IF's label
+
+			//boolean
+			produce_code(g_node_nth_child(node, 0), NULL);
+
+			//contains "L<line_number>_C<token_position_in_line>"
+			gchar* label_elseif = (gchar*)g_node_nth_child(node, 3)->data;
+			fprintf(stream, "\tbrfalse END_OF_ELSEIF_%s\n", label_elseif);
+
+			//code
+			produce_code(g_node_nth_child(node, 1), NULL);
+
+			fprintf(stream, "\tbr END_OF_CONDITIONAL_SECTION_%s\n", (gchar*)data);
+			fprintf(stream, "END_OF_ELSEIF_%s:\n", label_elseif);
+
+			//elseif, continue passing NODE_IF's label for jumps to end of conditional section
+			produce_code(g_node_nth_child(node, 2), data);
 			break;
 
 		case NODE_ELSE:
-			produce_code(g_node_nth_child(node, 0));	
+			produce_code(g_node_nth_child(node, 0), NULL);	
 			break;
 
 		case NODE_NUMBER:
-			fprintf(stream, "\tldc.i4 %ld\n", (long)g_node_nth_child(node, 0)->data);
+			fprintf(stream, "\tldc.i4 %ld\n", (long)GPOINTER_TO_SIZE(g_node_nth_child(node, 0)->data));
 			break;
 
 		case NODE_IDENTIFIER:
@@ -418,7 +438,7 @@ void produce_code(GNode* node) {
 			break;
 
 		case NODE_PRINT:
-			produce_code(g_node_nth_child(node, 0));
+			produce_code(g_node_nth_child(node, 0), NULL);
 			fprintf(stream, "\tcall void class [mscorlib]System.Console::WriteLine(int32)\n");
 			break;
 
