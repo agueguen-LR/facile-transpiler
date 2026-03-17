@@ -1,5 +1,5 @@
-a := 1071;
-b := 462;
+read a;
+read b;
 
 while b # 0 do
 	temp := b;
